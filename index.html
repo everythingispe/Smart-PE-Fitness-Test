@@ -456,35 +456,44 @@
     const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbywCQNyvoucdFLehoXTWhAsSfCeguVH8xr3DCTzxjcvCoSevJO2MTX2XTEdaKCotL-h/exec"; 
 
     function runBackendFunction(actionName, args = []) {
-        return new Promise((resolve, reject) => {
-            if (typeof google !== 'undefined' && google.script && google.script.run) {
-                // กรณีรันบน Google Apps Script Direct
-                google.script.run
-                    .withSuccessHandler(res => resolve(res))
-                    .withFailureHandler(err => reject(err))[actionName](...args);
-            } else {
-                // กรณีรันบน External Host (Cloudflare Pages)
-                fetch(GAS_WEB_APP_URL, {
-                    method: 'POST',
-                    mode: 'cors',
-                    redirect: 'follow',
-                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: JSON.stringify({ action: actionName, args: args })
-                })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error('Network response was not ok: ' + response.statusText);
-                    }
-                    return response.json();
-                })
-                .then(res => resolve(res))
-                .catch(err => {
-                    console.error("CORS/Fetch Error Details:", err);
-                    reject(err);
-                });
-            }
-        });
-    }
+    return new Promise((resolve, reject) => {
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+            // กรณีรันบน Google Apps Script Direct
+            google.script.run
+                .withSuccessHandler(res => resolve(res))
+                .withFailureHandler(err => reject(err))[actionName](...args);
+        } else {
+            // กรณีรันบน External Host (Cloudflare Pages / Netlify)
+            fetch(GAS_WEB_APP_URL, {
+                method: 'POST',
+                mode: 'cors',
+                redirect: 'follow',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({ action: actionName, args: args })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok: ' + response.statusText);
+                }
+                return response.json();
+            })
+            .then(res => {
+                // [จุดแก้ไข] ตรวจสอบว่ามีโครงสร้าง data หรือไม่ ถ้ามีให้ถอด data ออกมาใช้งาน
+                if (res && res.status === 'success') {
+                    resolve(res.data);
+                } else if (res && res.status === 'error') {
+                    reject(new Error(res.message || 'เกิดข้อผิดพลาดในการประมวลผลบนเซิร์ฟเวอร์'));
+                } else {
+                    resolve(res);
+                }
+            })
+            .catch(err => {
+                console.error("CORS/Fetch Error Details:", err);
+                reject(err);
+            });
+        }
+    });
+}
 
     var bmiCriteriaMatrix = [];
     var radarChartsInstances = {};
