@@ -453,7 +453,7 @@
     // =========================================================================
     // HYBRID API CONTROLLER (รองรับทั้ง GAS Direct และ Cloudflare / Netlify Host)
     // =========================================================================
-    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxg6JE85W_Gd3i_OMzbPUa04jS5lwEv9AyPHtZhUh0PxOMQ5JRApgx35sLuSpoB5qV3/exec"; // 📌 นำ Web App URL ที่ได้จาก Apps Script มาวางที่นี่
+    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxg6JE85W_Gd3i_OMzbPUa04jS5lwEv9AyPHtZhUh0PxOMQ5JRApgx35sLuSpoB5qV3/exec"; 
 
     function runBackendFunction(actionName, args = []) {
         return new Promise((resolve, reject) => {
@@ -466,7 +466,6 @@
                 // กรณีรันบน External Host (Cloudflare Pages / Netlify)
                 fetch(GAS_WEB_APP_URL, {
                     method: 'POST',
-                    mode: 'cors',
                     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                     body: JSON.stringify({ action: actionName, args: args })
                 })
@@ -492,7 +491,7 @@
     });
 
     document.addEventListener("DOMContentLoaded", function () {
-        fetchYearList();
+        loadAcademicYears();
 
         const sidInput = document.getElementById('sid');
         if (sidInput) {
@@ -524,31 +523,70 @@
         if (target) target.classList.remove('hidden');
     }
 
-    function fetchYearList() {
-        runBackendFunction('getYearListWrapper')
-            .then(years => {
-                if (years && years.length > 0) {
-                    const yrSelects = ['yr', 'sYr', 'aYr'];
-                    yrSelects.forEach(id => {
-                        const select = document.getElementById(id);
-                        if (select) {
-                            select.innerHTML = '';
-                            if (id === 'sYr' || id === 'aYr') {
-                                const optAll = document.createElement('option');
-                                optAll.value = 'all';
-                                optAll.textContent = 'ทั้งหมด';
-                                select.appendChild(optAll);
-                            }
-                            years.forEach(y => {
-                                const opt = document.createElement('option');
-                                opt.value = y;
-                                opt.textContent = y;
-                                select.appendChild(opt);
-                            });
-                        }
-                    });
+    function generateFallbackAcademicYears() {
+        const currentBE = new Date().getFullYear() + 543;
+        const defaultYears = [];
+        for (let i = currentBE + 1; i >= currentBE - 3; i--) {
+            defaultYears.push(i.toString());
+        }
+
+        const yrSelects = ['yr', 'sYr', 'aYr'];
+        yrSelects.forEach(id => {
+            const select = document.getElementById(id);
+            if (select) {
+                select.innerHTML = '';
+                if (id === 'sYr' || id === 'aYr') {
+                    const optAll = document.createElement('option');
+                    optAll.value = 'all';
+                    optAll.textContent = 'ทั้งหมด';
+                    select.appendChild(optAll);
                 }
-            }).catch(e => console.error(e));
+                defaultYears.forEach(y => {
+                    const opt = document.createElement('option');
+                    opt.value = y;
+                    opt.textContent = y;
+                    if (parseInt(y) === currentBE && id === 'yr') opt.selected = true;
+                    select.appendChild(opt);
+                });
+            }
+        });
+    }
+
+    async function loadAcademicYears() {
+        generateFallbackAcademicYears();
+        try {
+            const response = await runBackendFunction('getYearListWrapper', []);
+            let years = [];
+            if (response && response.status === 'success') {
+                years = response.data;
+            } else if (Array.isArray(response)) {
+                years = response;
+            }
+
+            if (years && years.length > 0) {
+                const yrSelects = ['yr', 'sYr', 'aYr'];
+                yrSelects.forEach(id => {
+                    const select = document.getElementById(id);
+                    if (select) {
+                        select.innerHTML = '';
+                        if (id === 'sYr' || id === 'aYr') {
+                            const optAll = document.createElement('option');
+                            optAll.value = 'all';
+                            optAll.textContent = 'ทั้งหมด';
+                            select.appendChild(optAll);
+                        }
+                        years.forEach(y => {
+                            const opt = document.createElement('option');
+                            opt.value = y;
+                            opt.textContent = y;
+                            select.appendChild(opt);
+                        });
+                    }
+                });
+            }
+        } catch (error) {
+            console.warn('ดึงปีการศึกษาจาก API ไม่สำเร็จ ใช้ค่าเริ่มต้นแทน:', error);
+        }
     }
 
     function adminLogin() {
@@ -1631,72 +1669,6 @@
         };
         html2pdf().set(opt).from(element).save();
     }
-    // 1. ฟังก์ชันสร้างปีการศึกษาฝั่ง Client-Side (ทำงานทันทีโดยไม่ต้องรอ Backend)
-  function generateFallbackAcademicYears() {
-    const yearSelect = document.getElementById('academicYear');
-    if (!yearSelect) return;
-
-    // คำนวณปี พ.ศ. ปัจจุบัน (ค.ศ. + 543)
-    const currentBE = new Date().getFullYear() + 543;
-    const defaultYears = [];
-
-    // สร้างรายการปีย้อนหลัง 3 ปี และล่วงหน้า 1 ปี
-    for (let i = currentBE + 1; i >= currentBE - 3; i--) {
-      defaultYears.push(i.toString());
-    }
-
-    // ล้างตัวเลือกเดิมและใส่ตัวเลือกใหม่
-    yearSelect.innerHTML = '<option value="">-- เลือกปีการศึกษา --</option>';
-    defaultYears.forEach(year => {
-      const option = document.createElement('option');
-      option.value = year;
-      option.textContent = year;
-      // ตั้งค่าเริ่มต้นให้เลือกปีปัจจุบัน
-      if (parseInt(year) === currentBE) {
-        option.selected = true;
-      }
-      yearSelect.appendChild(option);
-    });
-  }
-
-  // 2. ฟังก์ชันดึงปีการศึกษาจาก Apps Script API (หากเชื่อมต่อ API สำเร็จ)
-  async function loadAcademicYears() {
-    // ใส่ปีสำรองล่วงทันทีเพื่อไม่ให้ Dropdown ว่างเปล่า
-    generateFallbackAcademicYears();
-
-    try {
-      // ตรวจสอบว่ามีฟังก์ชัน runBackendFunction (จาก Dual-Mode) หรือไม่
-      if (typeof runBackendFunction === 'function') {
-        const response = await runBackendFunction('getYearListWrapper', []);
-        
-        let years = [];
-        if (response && response.status === 'success') {
-          years = response.data;
-        } else if (Array.isArray(response)) {
-          years = response;
-        }
-
-        // หาก API คืนค่าปีการศึกษามา ให้ใช้ค่าจาก API แทน
-        if (years && years.length > 0) {
-          const yearSelect = document.getElementById('academicYear');
-          yearSelect.innerHTML = '<option value="">-- เลือกปีการศึกษา --</option>';
-          years.forEach(year => {
-            const option = document.createElement('option');
-            option.value = year;
-            option.textContent = year;
-            yearSelect.appendChild(option);
-          });
-        }
-      }
-    } catch (error) {
-      console.warn('ไม่สามารถดึงปีการศึกษาจาก API ได้ ใช้ค่าเริ่มต้นแทน:', error);
-    }
-  }
-
-  // 3. เรียกทำงานทันทีเมื่อโหลดหน้าเว็บเรียบร้อย
-  document.addEventListener('DOMContentLoaded', function() {
-    loadAcademicYears();
-  });
 </script>
 </body>
 </html>
