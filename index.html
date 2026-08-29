@@ -453,7 +453,7 @@
     // =========================================================================
     // HYBRID API CONTROLLER (Version 2.1 Fix: CORS & Redirect Follow Supported)
     // =========================================================================
-    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbymGJLE6TwLVFPuWPnf02umI8vc0FRBeDxdv6P1_wEygqxLkheCXMM1oQt91ipyxTZ5/exec"; 
+    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbw3VL4vaIwLsLvxu90VWc8RA0Hn0RMtb-D-wZ_MEwg1utPQchSycNQ2T8LF-2aLaSQ/exec"; 
 
     function runBackendFunction(actionName, args = []) {
     return new Promise((resolve, reject) => {
@@ -464,45 +464,85 @@
                 .withFailureHandler(err => reject(err))[actionName](...args);
         } else {
             // กรณีรันบน External Host (Cloudflare Pages)
-            const callbackName = 'jsonp_cb_' + Math.random().toString(36).substring(2, 15);
-            const serializedArgs = encodeURIComponent(JSON.stringify(args));
+            const callbackId = 'gas_cb_' + Math.random().toString(36).substring(2, 15);
+            const serializedArgs = JSON.stringify(args);
 
-            // กำหนด Timeout ป้องกันค้าง (45 วินาที สำหรับฐานข้อมูลใหญ่)
-            const timeoutId = setTimeout(() => {
-                cleanup();
-                reject(new Error("การเชื่อมต่อหมดเวลา (Timeout): กรุณาตรวจสอบอินเทอร์เน็ตหรือ Deploy Web App สิทธิ์ Anyone"));
-            }, 45000);
-
-            function cleanup() {
-                delete window[callbackName];
-                const existingScript = document.getElementById(callbackName);
-                if (existingScript) existingScript.remove();
-                clearTimeout(timeoutId);
+            // Listener รับ Message ข้าม Origin
+            function onMessageReceived(event) {
+                try {
+                    const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+                    if (data && data.callbackId === callbackId) {
+                        cleanup();
+                        const res = data.responseData;
+                        if (res && res.status === 'success') {
+                            resolve(res.data);
+                        } else if (res && res.status === 'error') {
+                            reject(new Error(res.message || 'เกิดข้อผิดพลาดในการประมวลผลบนเซิร์ฟเวอร์'));
+                        } else {
+                            resolve(res);
+                        }
+                    }
+                } catch (e) {
+                    // ข้ามข้อความจาก Extension อื่นๆ
+                }
             }
 
-            // Global Callback Function รองรับการคืนค่าแบบ Realtime
-            window[callbackName] = function(res) {
-                cleanup();
-                if (res && res.status === 'success') {
-                    resolve(res.data);
-                } else if (res && res.status === 'error') {
-                    reject(new Error(res.message || 'เกิดข้อผิดพลาดในการประมวลผลบนเซิร์ฟเวอร์'));
-                } else {
-                    resolve(res);
-                }
-            };
+            window.addEventListener('message', onMessageReceived);
 
-            // สร้าง Dynamic Script Tag Inject เข้า DOM (ทะลุ CORS 100%)
-            const script = document.createElement('script');
-            script.id = callbackName;
-            script.src = `${GAS_WEB_APP_URL}?action=${actionName}&args=${serializedArgs}&callback=${callbackName}`;
-            
-            script.onerror = function() {
+            // ตั้ง Timeout ไว้ที่ 40 วินาที สำหรับดึงข้อมูลจำนวนมาก
+            const timeoutId = setTimeout(() => {
                 cleanup();
-                reject(new Error("เกิดข้อผิดพลาดในการโหลดข้อมูล (JSONP Error): กรุณาตรวจสอบ Deployment URL"));
-            };
+                reject(new Error("การเชื่อมต่อหมดเวลา (Timeout): กรุณาตรวจสอบว่าได้เลือก Deployment สิทธิ์ Anyone เรียบร้อยแล้ว"));
+            }, 40000);
 
-            document.head.appendChild(script);
+            function cleanup() {
+                window.removeEventListener('message', onMessageReceived);
+                clearTimeout(timeoutId);
+                const iframe = document.getElementById(callbackId + '_iframe');
+                const form = document.getElementById(callbackId + '_form');
+                if (iframe) iframe.remove();
+                if (form) form.remove();
+            }
+
+            try {
+                // สร้าง Hidden Iframe และ Hidden Form ส่งข้อมูลผ่าน HTTP POST เพื่อไม่ให้ติดขีดจำกัดความยาว URL
+                const iframe = document.createElement('iframe');
+                iframe.name = callbackId + '_iframe';
+                iframe.id = iframe.name;
+                iframe.style.display = 'none';
+                document.body.appendChild(iframe);
+
+                const form = document.createElement('form');
+                form.id = callbackId + '_form';
+                form.method = 'POST';
+                form.action = GAS_WEB_APP_URL;
+                form.target = iframe.name;
+                form.style.display = 'none';
+
+                const fieldAction = document.createElement('input');
+                fieldAction.type = 'hidden';
+                fieldAction.name = 'action';
+                fieldAction.value = actionName;
+                form.appendChild(fieldAction);
+
+                const fieldArgs = document.createElement('input');
+                fieldArgs.type = 'hidden';
+                fieldArgs.name = 'args';
+                fieldArgs.value = serializedArgs;
+                form.appendChild(fieldArgs);
+
+                const fieldCallback = document.createElement('input');
+                fieldCallback.type = 'hidden';
+                fieldCallback.name = 'callback';
+                fieldCallback.value = callbackId;
+                form.appendChild(fieldCallback);
+
+                document.body.appendChild(form);
+                form.submit();
+            } catch (err) {
+                cleanup();
+                reject(new Error("ส่งข้อมูลไม่สำเร็จ: " + err.message));
+            }
         }
     });
 }
