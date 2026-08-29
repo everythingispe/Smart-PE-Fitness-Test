@@ -451,9 +451,9 @@
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
     // =========================================================================
-    // HYBRID API CONTROLLER (รองรับทั้ง GAS Direct และ Cloudflare / Netlify Host)
+    // HYBRID API CONTROLLER (Version 2.1 Fix: CORS & Redirect Follow Supported)
     // =========================================================================
-    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwDKcKoZXJPefQKyuUgbjmQPXYNnt_jmgyWu7PvJr2XiZXx62ZckNW4qZ39bHx2Gn4R/exec"; 
+    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbywCQNyvoucdFLehoXTWhAsSfCeguVH8xr3DCTzxjcvCoSevJO2MTX2XTEdaKCotL-h/exec"; 
 
     function runBackendFunction(actionName, args = []) {
         return new Promise((resolve, reject) => {
@@ -463,15 +463,25 @@
                     .withSuccessHandler(res => resolve(res))
                     .withFailureHandler(err => reject(err))[actionName](...args);
             } else {
-                // กรณีรันบน External Host (Cloudflare Pages / Netlify)
+                // กรณีรันบน External Host (Cloudflare Pages)
                 fetch(GAS_WEB_APP_URL, {
                     method: 'POST',
+                    mode: 'cors',
+                    redirect: 'follow',
                     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                     body: JSON.stringify({ action: actionName, args: args })
                 })
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok: ' + response.statusText);
+                    }
+                    return response.json();
+                })
                 .then(res => resolve(res))
-                .catch(err => reject(err));
+                .catch(err => {
+                    console.error("CORS/Fetch Error Details:", err);
+                    reject(err);
+                });
             }
         });
     }
