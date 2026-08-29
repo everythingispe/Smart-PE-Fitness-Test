@@ -453,7 +453,7 @@
     // =========================================================================
     // HYBRID API CONTROLLER (Version 2.1 Fix: CORS & Redirect Follow Supported)
     // =========================================================================
-    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzyhE6rLwJkf-RaVGlpqvgKkw3YnhQYUu-YEr0P6PN2owaGgTKHZrIqLKAYbC9ogVow/exec"; 
+    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxuosmRZZNFHoKuP4cbmPoaLn5ZXIpY8aMa6MTcQaCkFf06Bt4v-NJJB4EJYBN5aGdD/exec"; 
 
     function runBackendFunction(actionName, args = []) {
     return new Promise((resolve, reject) => {
@@ -463,26 +463,27 @@
                 .withSuccessHandler(res => resolve(res))
                 .withFailureHandler(err => reject(err))[actionName](...args);
         } else {
-            // กรณีรันบน External Host (Cloudflare Pages) - ใช้เทคนิค JSONP ข้าม CORS
-            const callbackName = 'jsonp_cb_' + Math.random().toString(36).substring(2, 15);
-            const encodedArgs = encodeURIComponent(JSON.stringify(args));
-            const script = document.createElement('script');
+            // กรณีรันบน External Host (Cloudflare Pages)
+            const callbackName = 'gas_cb_' + Math.random().toString(36).substring(2, 15);
+            const serializedArgs = JSON.stringify(args);
 
-            // กำหนด Timeout กรณีเชื่อมต่อไม่ได้ภายใน 15 วินาที
+            // ตั้งค่า Timeout ป้องกันค้าง
             const timeoutId = setTimeout(() => {
                 cleanup();
                 reject(new Error("การเชื่อมต่อหมดเวลา (Timeout): กรุณาตรวจสอบอินเทอร์เน็ตหรือ URL Deployment"));
-            }, 15000);
+            }, 30000);
 
+            // Cleanup memory & DOM Elements
             function cleanup() {
                 delete window[callbackName];
-                if (script.parentNode) {
-                    script.parentNode.removeChild(script);
-                }
+                const iframe = document.getElementById(callbackName + '_iframe');
+                const form = document.getElementById(callbackName + '_form');
+                if (iframe) iframe.remove();
+                if (form) form.remove();
                 clearTimeout(timeoutId);
             }
 
-            // สร้าง Global Callback Function เพื่อรับค่ากลับ
+            // สร้าง Callback Function มารอรับข้อมูล
             window[callbackName] = function(res) {
                 cleanup();
                 if (res && res.status === 'success') {
@@ -494,13 +495,45 @@
                 }
             };
 
-            script.src = `${GAS_WEB_APP_URL}?action=${actionName}&args=${encodedArgs}&callback=${callbackName}`;
-            script.onerror = function() {
-                cleanup();
-                reject(new Error("Failed to fetch (JSONP Load Error): กรุณาตรวจสอบว่าได้เลือก Who has access เป็น Anyone ใน Deployment ล่าสุดแล้ว"));
-            };
+            // ใช้ Iframe Form Post เพื่อข้ามขีดจำกัด CORS และ URL Length ของ JSONP
+            try {
+                const iframe = document.createElement('iframe');
+                iframe.name = callbackName + '_iframe';
+                iframe.id = iframe.name;
+                iframe.style.display = 'none';
+                document.body.appendChild(iframe);
 
-            document.body.appendChild(script);
+                const form = document.createElement('form');
+                form.id = callbackName + '_form';
+                form.method = 'POST';
+                form.action = GAS_WEB_APP_URL;
+                form.target = iframe.name;
+                form.style.display = 'none';
+
+                const inputAction = document.createElement('input');
+                inputAction.type = 'hidden';
+                inputAction.name = 'action';
+                inputAction.value = actionName;
+                form.appendChild(inputAction);
+
+                const inputArgs = document.createElement('input');
+                inputArgs.type = 'hidden';
+                inputArgs.name = 'args';
+                inputArgs.value = serializedArgs;
+                form.appendChild(inputArgs);
+
+                const inputCallback = document.createElement('input');
+                inputCallback.type = 'hidden';
+                inputCallback.name = 'callback';
+                inputCallback.value = callbackName;
+                form.appendChild(inputCallback);
+
+                document.body.appendChild(form);
+                form.submit();
+            } catch (err) {
+                cleanup();
+                reject(new Error("Failed to transport request: " + err.message));
+            }
         }
     });
 }
