@@ -453,7 +453,7 @@
     // =========================================================================
     // HYBRID API CONTROLLER (Version 2.1 Fix: CORS & Redirect Follow Supported)
     // =========================================================================
-    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbw3VL4vaIwLsLvxu90VWc8RA0Hn0RMtb-D-wZ_MEwg1utPQchSycNQ2T8LF-2aLaSQ/exec"; 
+    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzEjrVfapBxinkZNe7NkDtaigx6y4tokmJSX2ZmhuI9qGFMKhDSarb7BG7IJRq79CkW/exec"; 
 
     function runBackendFunction(actionName, args = []) {
     return new Promise((resolve, reject) => {
@@ -464,81 +464,49 @@
                 .withFailureHandler(err => reject(err))[actionName](...args);
         } else {
             // กรณีรันบน External Host (Cloudflare Pages)
-            const callbackId = 'gas_cb_' + Math.random().toString(36).substring(2, 15);
-            const serializedArgs = JSON.stringify(args);
+            const callbackName = 'gas_cb_' + Math.random().toString(36).substring(2, 15);
+            const serializedArgs = encodeURIComponent(JSON.stringify(args));
 
-            // Listener รับ Message ข้าม Origin
-            function onMessageReceived(event) {
-                try {
-                    const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
-                    if (data && data.callbackId === callbackId) {
-                        cleanup();
-                        const res = data.responseData;
-                        if (res && res.status === 'success') {
-                            resolve(res.data);
-                        } else if (res && res.status === 'error') {
-                            reject(new Error(res.message || 'เกิดข้อผิดพลาดในการประมวลผลบนเซิร์ฟเวอร์'));
-                        } else {
-                            resolve(res);
-                        }
-                    }
-                } catch (e) {
-                    // ข้ามข้อความจาก Extension อื่นๆ
-                }
-            }
-
-            window.addEventListener('message', onMessageReceived);
-
-            // ตั้ง Timeout ไว้ที่ 40 วินาที สำหรับดึงข้อมูลจำนวนมาก
+            // กำหนด Timeout ป้องกันค้าง (60 วินาที สำหรับฐานข้อมูลใหญ่)
             const timeoutId = setTimeout(() => {
                 cleanup();
-                reject(new Error("การเชื่อมต่อหมดเวลา (Timeout): กรุณาตรวจสอบว่าได้เลือก Deployment สิทธิ์ Anyone เรียบร้อยแล้ว"));
-            }, 40000);
+                reject(new Error("การเชื่อมต่อหมดเวลา (Timeout): กรุณาตรวจสอบอินเทอร์เน็ตหรือ Deploy สิทธิ์ Anyone"));
+            }, 60000);
 
+            // ฟังก์ชันล้างค่าในระบบ
             function cleanup() {
-                window.removeEventListener('message', onMessageReceived);
+                delete window[callbackName];
+                const scriptElement = document.getElementById(callbackName);
+                if (scriptElement && scriptElement.parentNode) {
+                    scriptElement.parentNode.removeChild(scriptElement);
+                }
                 clearTimeout(timeoutId);
-                const iframe = document.getElementById(callbackId + '_iframe');
-                const form = document.getElementById(callbackId + '_form');
-                if (iframe) iframe.remove();
-                if (form) form.remove();
             }
 
+            // สร้าง Callback รับค่ากลับแบบ Global Function
+            window[callbackName] = function(res) {
+                cleanup();
+                if (res && res.status === 'success') {
+                    resolve(res.data);
+                } else if (res && res.status === 'error') {
+                    reject(new Error(res.message || 'เกิดข้อผิดพลาดในการประมวลผลบนเซิร์ฟเวอร์'));
+                } else {
+                    resolve(res);
+                }
+            };
+
+            // สร้าง Dynamic Script Tag Inject ทะลุ CORS
             try {
-                // สร้าง Hidden Iframe และ Hidden Form ส่งข้อมูลผ่าน HTTP POST เพื่อไม่ให้ติดขีดจำกัดความยาว URL
-                const iframe = document.createElement('iframe');
-                iframe.name = callbackId + '_iframe';
-                iframe.id = iframe.name;
-                iframe.style.display = 'none';
-                document.body.appendChild(iframe);
+                const script = document.createElement('script');
+                script.id = callbackName;
+                script.src = `${GAS_WEB_APP_URL}?action=${actionName}&args=${serializedArgs}&callback=${callbackName}`;
+                
+                script.onerror = function() {
+                    cleanup();
+                    reject(new Error("เกิดข้อผิดพลาดในการโหลดข้อมูล (Network/JSONP Error): กรุณาตรวจสอบ URL Deployment"));
+                };
 
-                const form = document.createElement('form');
-                form.id = callbackId + '_form';
-                form.method = 'POST';
-                form.action = GAS_WEB_APP_URL;
-                form.target = iframe.name;
-                form.style.display = 'none';
-
-                const fieldAction = document.createElement('input');
-                fieldAction.type = 'hidden';
-                fieldAction.name = 'action';
-                fieldAction.value = actionName;
-                form.appendChild(fieldAction);
-
-                const fieldArgs = document.createElement('input');
-                fieldArgs.type = 'hidden';
-                fieldArgs.name = 'args';
-                fieldArgs.value = serializedArgs;
-                form.appendChild(fieldArgs);
-
-                const fieldCallback = document.createElement('input');
-                fieldCallback.type = 'hidden';
-                fieldCallback.name = 'callback';
-                fieldCallback.value = callbackId;
-                form.appendChild(fieldCallback);
-
-                document.body.appendChild(form);
-                form.submit();
+                document.getElementsByTagName('head')[0].appendChild(script);
             } catch (err) {
                 cleanup();
                 reject(new Error("ส่งข้อมูลไม่สำเร็จ: " + err.message));
