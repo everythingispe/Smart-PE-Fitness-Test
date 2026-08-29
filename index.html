@@ -1631,6 +1631,72 @@
         };
         html2pdf().set(opt).from(element).save();
     }
+    // 1. ฟังก์ชันสร้างปีการศึกษาฝั่ง Client-Side (ทำงานทันทีโดยไม่ต้องรอ Backend)
+  function generateFallbackAcademicYears() {
+    const yearSelect = document.getElementById('academicYear');
+    if (!yearSelect) return;
+
+    // คำนวณปี พ.ศ. ปัจจุบัน (ค.ศ. + 543)
+    const currentBE = new Date().getFullYear() + 543;
+    const defaultYears = [];
+
+    // สร้างรายการปีย้อนหลัง 3 ปี และล่วงหน้า 1 ปี
+    for (let i = currentBE + 1; i >= currentBE - 3; i--) {
+      defaultYears.push(i.toString());
+    }
+
+    // ล้างตัวเลือกเดิมและใส่ตัวเลือกใหม่
+    yearSelect.innerHTML = '<option value="">-- เลือกปีการศึกษา --</option>';
+    defaultYears.forEach(year => {
+      const option = document.createElement('option');
+      option.value = year;
+      option.textContent = year;
+      // ตั้งค่าเริ่มต้นให้เลือกปีปัจจุบัน
+      if (parseInt(year) === currentBE) {
+        option.selected = true;
+      }
+      yearSelect.appendChild(option);
+    });
+  }
+
+  // 2. ฟังก์ชันดึงปีการศึกษาจาก Apps Script API (หากเชื่อมต่อ API สำเร็จ)
+  async function loadAcademicYears() {
+    // ใส่ปีสำรองล่วงทันทีเพื่อไม่ให้ Dropdown ว่างเปล่า
+    generateFallbackAcademicYears();
+
+    try {
+      // ตรวจสอบว่ามีฟังก์ชัน runBackendFunction (จาก Dual-Mode) หรือไม่
+      if (typeof runBackendFunction === 'function') {
+        const response = await runBackendFunction('getYearListWrapper', []);
+        
+        let years = [];
+        if (response && response.status === 'success') {
+          years = response.data;
+        } else if (Array.isArray(response)) {
+          years = response;
+        }
+
+        // หาก API คืนค่าปีการศึกษามา ให้ใช้ค่าจาก API แทน
+        if (years && years.length > 0) {
+          const yearSelect = document.getElementById('academicYear');
+          yearSelect.innerHTML = '<option value="">-- เลือกปีการศึกษา --</option>';
+          years.forEach(year => {
+            const option = document.createElement('option');
+            option.value = year;
+            option.textContent = year;
+            yearSelect.appendChild(option);
+          });
+        }
+      }
+    } catch (error) {
+      console.warn('ไม่สามารถดึงปีการศึกษาจาก API ได้ ใช้ค่าเริ่มต้นแทน:', error);
+    }
+  }
+
+  // 3. เรียกทำงานทันทีเมื่อโหลดหน้าเว็บเรียบร้อย
+  document.addEventListener('DOMContentLoaded', function() {
+    loadAcademicYears();
+  });
 </script>
 </body>
 </html>
