@@ -453,7 +453,7 @@
     // =========================================================================
     // HYBRID API CONTROLLER (Version 2.1 Fix: CORS & Redirect Follow Supported)
     // =========================================================================
-    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwpkOBT0zvVnsX9mNlEkBypXb_P3hYTuvkEq2NrjcQ3WfqAXK9S2R-UTbTov43PMiBG/exec"; 
+    const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwHvW_E5WtzftENLla1GF1Ptoi-1q6pxXUDP_XUT8C113PJThwiXCmGWSEa4hOuxykC/exec"; 
 
     function runBackendFunction(actionName, args = []) {
         return new Promise((resolve, reject) => {
@@ -469,14 +469,13 @@
 
                 fetch(targetUrl, {
                     method: 'GET',
-                    mode: 'cors',
                     redirect: 'follow',
                     headers: {
                         'Accept': 'application/json'
                     }
                 })
                 .then(response => {
-                    if (!response.ok) {
+                    if (!response.ok && response.status !== 0) {
                         throw new Error('Network response status: ' + response.status);
                     }
                     return response.json();
@@ -492,7 +491,7 @@
                 })
                 .catch(err => {
                     console.error("CORS/Fetch Error Details:", err);
-                    reject(new Error("Failed to fetch: กรุณาตรวจสอบการ Deploy ของ Apps Script ว่าตั้งค่า 'Who has access' เป็น 'Anyone' (ทุกคน) แล้วหรือไม่"));
+                    reject(new Error("Failed to fetch: กรุณาตรวจสอบว่าได้ทำการ New Deployment และตั้งค่า Who has access เป็น Anyone เรียบร้อยแล้ว"));
                 });
             }
         });
